@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: indeed-scraper
+    env: docker
+    plan: starter
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 10000
