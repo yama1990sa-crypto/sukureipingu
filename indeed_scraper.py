@@ -317,13 +317,26 @@ def is_indeed_url(url: str) -> bool:
         return False
 
 
-def scrape_generic_page(page, url: str) -> List[Job]:
+def scrape_generic_page(page, url: str, notify=None) -> List[Job]:
     """
     Indeed 以外の任意サイト向けの汎用スクレイピング。
     ページ内の「繰り返し要素」を自動検出してタイトル・URL・概要を抽出する。
     サイト専用のセレクタが無いぶん精度は Indeed 版より落ちる。
     """
-    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    def log(msg: str):
+        if notify:
+            notify(msg)
+
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    except PWTimeoutError:
+        # 重いサイトや接続が遅い場合、domcontentloaded 待ちで45秒超えることがある。
+        # ナビゲーション自体は開始できている可能性が高いので、
+        # 条件を緩めて(応答ヘッダー受信時点で)もう一度だけ試す。
+        log("  ページの読み込みに時間がかかっています。条件を緩めて再試行します…")
+        page.goto(url, wait_until="commit", timeout=45000)
+        page.wait_for_timeout(3000)
+
     try:
         page.wait_for_load_state("networkidle", timeout=5000)
     except PWTimeoutError:
@@ -376,13 +389,18 @@ def run_generic_scrape(
         )
         page = context.new_page()
         try:
-            jobs = scrape_generic_page(page, url)
+            jobs = scrape_generic_page(page, url, notify=notify)
         except Exception as e:
             notify(f"エラー: ページ取得に失敗しました ({e})")
+            notify(
+                "  ヒント: サイトが重い、アクセスが多い時間帯、または"
+                "サーバー側からのアクセス制限の可能性があります。"
+                "時間を置くか、別のURLでお試しください。"
+            )
             jobs = []
         browser.close()
 
-    notify(f"  -> {len(jobs)} 件取得(タイトル・URL・概要のみ)")
+    notify(f"  -> {len(jobs)} 件取得(タイトル・URL・概要・会社名・住所・電話・メール)")
     return jobs
 
 
