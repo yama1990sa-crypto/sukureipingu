@@ -104,10 +104,11 @@ GENERIC_EXTRACT_JS = """
     const headingEl = el.querySelector('h1,h2,h3,h4,h5,h6') || linkEl;
     const title = (headingEl ? headingEl.innerText : '').trim().slice(0, 200);
     const url = linkEl ? linkEl.href : '';
-    let snippet = (el.innerText || '').trim();
+    const fullText = (el.innerText || '').trim().slice(0, 2000);
+    let snippet = fullText;
     if (title) snippet = snippet.replace(title, '').trim();
     snippet = snippet.slice(0, 200);
-    return { title, url, snippet };
+    return { title, url, snippet, fullText };
   }).filter(item => item.title);
 }
 """
@@ -124,6 +125,65 @@ class Job:
     snippet: str = ""
     job_id: str = ""
     url: str = ""
+    phone: str = ""
+    email: str = ""
+
+
+# ── 汎用モード向け: 会社名・住所・電話番号・メールアドレスの正規表現抽出 ──
+# 一覧ページの本文テキストに直接これらの情報が含まれている場合のみ抽出できる。
+# 「詳細ページに飛ばないと分からない」サイトでは空欄になる(既知の制約)。
+
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+PHONE_RE = re.compile(r"0\d{1,4}[-‐−ー]\d{1,4}[-‐−ー]\d{3,4}")
+POSTAL_RE = re.compile(r"〒?\s*\d{3}[-‐−ー]\d{4}")
+
+PREFECTURES = [
+    "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+    "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+    "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
+    "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
+    "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+    "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
+    "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+]
+PREFECTURE_RE = re.compile("(" + "|".join(PREFECTURES) + ")")
+
+COMPANY_SUFFIXES = [
+    "株式会社", "有限会社", "合同会社", "合資会社", "合名会社",
+    "一般社団法人", "公益社団法人", "一般財団法人", "公益財団法人",
+    "NPO法人", "特定非営利活動法人", "医療法人", "社会福祉法人",
+]
+COMPANY_RE = re.compile(
+    r"[^\s、。,\n\r\t]{0,20}(?:" + "|".join(COMPANY_SUFFIXES) + r")[^\s、。,\n\r\t]{0,20}"
+)
+
+
+def extract_company_name(text: str) -> str:
+    m = COMPANY_RE.search(text)
+    return m.group(0).strip() if m else ""
+
+
+def extract_address(text: str) -> str:
+    m = POSTAL_RE.search(text)
+    if m:
+        window = text[m.start(): m.start() + 60].split("\n")[0]
+        return window.strip()
+    m = PREFECTURE_RE.search(text)
+    if m:
+        window = text[m.start(): m.start() + 50].split("\n")[0]
+        return window.strip()
+    return ""
+
+
+def extract_business_fields(text: str) -> dict:
+    email_m = EMAIL_RE.search(text)
+    phone_m = PHONE_RE.search(text)
+    return {
+        "company": extract_company_name(text),
+        "address": extract_address(text),
+        "phone": phone_m.group(0) if phone_m else "",
+        "email": email_m.group(0) if email_m else "",
+    }
 
 
 def build_search_url(keyword: str, location: str) -> str:
@@ -278,6 +338,14 @@ def scrape_generic_page(page, url: str) -> List[Job]:
         job.title = (item.get("title") or "").strip()
         job.url = item.get("url") or ""
         job.snippet = (item.get("snippet") or "").strip()
+
+        full_text = item.get("fullText") or ""
+        fields_found = extract_business_fields(full_text)
+        job.company = fields_found["company"]
+        job.location = fields_found["address"]
+        job.phone = fields_found["phone"]
+        job.email = fields_found["email"]
+
         if job.title:
             jobs.append(job)
     return jobs

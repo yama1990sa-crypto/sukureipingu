@@ -70,9 +70,15 @@ python indeed_scraper.py --url "..." --output jobs.csv
 ```
 
 ## 取得項目(CSV列)
-title(職種名) / company(会社名) / location(勤務地) / salary(給与) /
-employment_type(雇用形態) / posted(掲載日) / snippet(仕事内容の概要) /
-job_id / url(求人詳細URL)
+title(職種名/タイトル) / company(会社名) / location(勤務地・住所) / salary(給与) /
+employment_type(雇用形態) / posted(掲載日) / snippet(概要) / job_id /
+url(詳細URL) / phone(電話番号) / email(メールアドレス)
+
+Indeed以外の汎用モードでは company・location(住所)・phone・email は
+ページ本文を正規表現で解析して自動検出しています(株式会社等の法人格、
+郵便番号・都道府県名、電話番号形式、メールアドレス形式で判定)。
+一覧ページの本文に直接書かれていない情報(詳細ページにしか無い情報)は
+検出できず、空欄になります。
 
 ## 既知の制約
 - Indeed はページのHTML構造を頻繁に変更するため、時間が経つとセレクタが
@@ -80,3 +86,5 @@ job_id / url(求人詳細URL)
   CSSセレクタ(`data-testid` 等)を最新のページ構造に合わせて更新してください。
 - ブロック検知は簡易的なキーワード判定です。過信せず、実行結果(CSVの件数)を
   都度確認してください。
+- 汎用モードの会社名・住所・電話番号・メールアドレス抽出は正規表現による
+  ヒューリスティックです。サイトの書き方によっては誤検出・未検出があります。
