@@ -164,6 +164,13 @@ def looks_blocked(html: str) -> bool:
     return any(marker.lower() in lowered for marker in BLOCK_MARKERS)
 
 
+class BlockedError(Exception):
+    """Indeedのブロック/確認ページ(bot検知)を検知した場合に送出する例外。
+    一時的なセッション単位の確認である場合もあるため、呼び出し側で
+    時間を置いてリトライする。"""
+    pass
+
+
 def scrape_page(page, url: str) -> List[Job]:
     page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
@@ -181,8 +188,7 @@ def scrape_page(page, url: str) -> List[Job]:
 
     html = page.content()
     if looks_blocked(html):
-        print("警告: ブロック/確認ページの可能性があります。取得を中断します。", file=sys.stderr)
-        return []
+        raise BlockedError("ブロック/確認ページを検知しました")
 
     cards = page.locator("div.job_seen_beacon, td.resultContent")
     count = cards.count()
@@ -377,19 +383,45 @@ def run_scrape(
         )
         page = context.new_page()
 
+        # ブロック検知時のリトライ設定(セッション単位の一時的な確認である
+        # ケースもあるため、間隔を空けて数回だけ再試行する)
+        block_retry_waits = [30, 90]  # 秒。この回数+1回まで試行する
+
         for page_num in range(pages):
             start = page_num * 10
             url = with_start_param(base_url, start) if page_num > 0 else base_url
             notify(f"[{page_num + 1}/{pages}] 取得中: {url}")
 
-            try:
-                jobs = scrape_page(page, url)
-            except Exception as e:
-                notify(f"エラー: ページ取得に失敗しました ({e})")
+            jobs = None
+            blocked_out = False
+            attempt = 0
+            while True:
+                attempt += 1
+                try:
+                    jobs = scrape_page(page, url)
+                    break
+                except BlockedError:
+                    if attempt - 1 < len(block_retry_waits):
+                        wait_s = block_retry_waits[attempt - 1]
+                        notify(
+                            f"  ブロック/確認ページを検知しました。{wait_s}秒待って再試行します "
+                            f"({attempt}/{len(block_retry_waits) + 1}回目)"
+                        )
+                        time.sleep(wait_s)
+                        continue
+                    notify("  再試行してもブロックが解除されませんでした。取得を中断します。")
+                    blocked_out = True
+                    break
+                except Exception as e:
+                    notify(f"エラー: ページ取得に失敗しました ({e})")
+                    blocked_out = True
+                    break
+
+            if blocked_out:
                 break
 
             if not jobs:
-                notify("これ以上の求人が見つからないか、ブロックされました。終了します。")
+                notify("これ以上の求人が見つかりませんでした。終了します。")
                 break
 
             new_count = 0
