@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Indeed 求人スクレイピングツール</title>
+<title>スクレイピングツール</title>
 <style>
   :root {
     --blue: #2557a7;
@@ -60,6 +60,7 @@
   }
   .field-group { display: none; }
   .field-group.active { display: block; }
+  .hint { font-size: 12px; color: #777; margin-top: 6px; line-height: 1.5; }
   .row { display: flex; gap: 12px; }
   .row > div { flex: 1; }
   button.primary {
@@ -108,19 +109,20 @@
 </head>
 <body>
 <div class="container">
-  <h1>Indeed 求人スクレイピングツール</h1>
+  <h1>スクレイピングツール</h1>
   <div class="subtitle">検索条件を入力して「取得開始」を押すだけです</div>
 
   <div class="warning">
     <strong>ご利用にあたっての注意:</strong>
     Indeed の利用規約は自動収集(スクレイピング)を禁止しています。
-    本ツールの利用は自己責任でお願いします。個人利用の範囲にとどめ、
+    Indeed以外のサイトを指定する場合も、それぞれの利用規約・robots.txtを
+    ご自身で確認の上、自己責任でお使いください。個人利用の範囲にとどめ、
     取得データの商用利用・再配布は避けてください。
   </div>
 
   <div class="card">
     <div class="tabs">
-      <button type="button" class="tab-btn active" data-mode="keyword">キーワードで検索</button>
+      <button type="button" class="tab-btn active" data-mode="keyword">Indeedキーワード検索</button>
       <button type="button" class="tab-btn" data-mode="url">URLを直接指定</button>
     </div>
 
@@ -138,8 +140,13 @@
     </div>
 
     <div id="field-url" class="field-group">
-      <label>Indeed 検索結果ページのURL</label>
-      <input type="text" id="url" placeholder="https://jp.indeed.com/...">
+      <label>スクレイピングしたいページのURL(Indeed以外のサイトも可)</label>
+      <input type="text" id="url" placeholder="https://example.com/...">
+      <div class="hint">
+        Indeed以外のURLを指定した場合は「汎用モード」で動作し、
+        指定した1ページからタイトル・リンク・概要のみを自動検出して取得します
+        (ページ数指定は無視されます)。サイトによっては精度が落ちることがあります。
+      </div>
     </div>
 
     <label>取得ページ数(1ページ ≒ 15件、最大 {{ max_pages }} ページ)</label>

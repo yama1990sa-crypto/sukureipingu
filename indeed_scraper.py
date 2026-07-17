@@ -67,6 +67,51 @@ BLOCK_MARKERS = [
     "確認が必要です",
 ]
 
+# Indeed 以外の汎用サイト向け: ページ内で「同じ形をした要素が繰り返されている
+# ブロック」(検索結果の1件1件、記事一覧の1記事など)を自動検出し、
+# タイトル・リンク・概要テキストを抜き出すヒューリスティック。
+# 完全な精度は出ないが、サイトごとにセレクタを用意しなくても
+# ある程度の情報を取得できる。
+GENERIC_EXTRACT_JS = """
+() => {
+  const all = Array.from(document.querySelectorAll('body *'));
+  const candidates = all.filter(el => {
+    if (!el.querySelector('a[href]')) return false;
+    const text = (el.innerText || '').trim();
+    if (text.length < 15 || text.length > 4000) return false;
+    return true;
+  });
+
+  const groups = {};
+  candidates.forEach(el => {
+    const cls = (el.className && el.className.toString) ? el.className.toString() : '';
+    const sig = el.tagName + '.' + cls.split(' ').filter(Boolean).slice(0, 3).join('.');
+    (groups[sig] = groups[sig] || []).push(el);
+  });
+
+  let bestSig = null, bestCount = 0;
+  for (const sig in groups) {
+    const els = groups[sig];
+    if (els.length >= 3 && els.length > bestCount && els.length <= 200) {
+      bestCount = els.length;
+      bestSig = sig;
+    }
+  }
+  if (!bestSig) return [];
+
+  return groups[bestSig].slice(0, 100).map(el => {
+    const linkEl = el.querySelector('a[href]');
+    const headingEl = el.querySelector('h1,h2,h3,h4,h5,h6') || linkEl;
+    const title = (headingEl ? headingEl.innerText : '').trim().slice(0, 200);
+    const url = linkEl ? linkEl.href : '';
+    let snippet = (el.innerText || '').trim();
+    if (title) snippet = snippet.replace(title, '').trim();
+    snippet = snippet.slice(0, 200);
+    return { title, url, snippet };
+  }).filter(item => item.title);
+}
+"""
+
 
 @dataclass
 class Job:
@@ -198,6 +243,99 @@ def scrape_page(page, url: str) -> List[Job]:
     return jobs
 
 
+def is_indeed_url(url: str) -> bool:
+    """URLが Indeed のものかどうか判定する"""
+    try:
+        return "indeed.com" in urlparse(url).netloc.lower()
+    except Exception:
+        return False
+
+
+def scrape_generic_page(page, url: str) -> List[Job]:
+    """
+    Indeed 以外の任意サイト向けの汎用スクレイピング。
+    ページ内の「繰り返し要素」を自動検出してタイトル・URL・概要を抽出する。
+    サイト専用のセレクタが無いぶん精度は Indeed 版より落ちる。
+    """
+    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    try:
+        page.wait_for_load_state("networkidle", timeout=5000)
+    except PWTimeoutError:
+        pass
+    page.wait_for_timeout(1500)
+
+    raw_items = page.evaluate(GENERIC_EXTRACT_JS)
+
+    jobs: List[Job] = []
+    for item in raw_items:
+        job = Job()
+        job.title = (item.get("title") or "").strip()
+        job.url = item.get("url") or ""
+        job.snippet = (item.get("snippet") or "").strip()
+        if job.title:
+            jobs.append(job)
+    return jobs
+
+
+def run_generic_scrape(
+    url: str,
+    headless: bool = True,
+    progress_cb=None,
+) -> List[Job]:
+    """Indeed 以外のサイトを1ページだけスクレイピングする(汎用モード)。"""
+
+    def notify(msg: str):
+        if progress_cb:
+            progress_cb(msg)
+        else:
+            print(msg)
+
+    notify("Indeed以外のサイトと判定しました。汎用モードで指定ページのみ取得します。")
+    notify(f"取得中: {url}")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=headless)
+        context = browser.new_context(
+            user_agent=USER_AGENT,
+            locale="ja-JP",
+            viewport={"width": 1280, "height": 900},
+        )
+        page = context.new_page()
+        try:
+            jobs = scrape_generic_page(page, url)
+        except Exception as e:
+            notify(f"エラー: ページ取得に失敗しました ({e})")
+            jobs = []
+        browser.close()
+
+    notify(f"  -> {len(jobs)} 件取得(タイトル・URL・概要のみ)")
+    return jobs
+
+
+def run_scrape_any(
+    base_url: str,
+    pages: int = 1,
+    headless: bool = True,
+    min_delay: float = 3.0,
+    max_delay: float = 6.0,
+    progress_cb=None,
+) -> List[Job]:
+    """
+    URLを見て Indeed なら専用ロジック(複数ページ・詳細項目対応)、
+    それ以外なら汎用ロジック(1ページのみ・タイトル/URL/概要)を使う。
+    """
+    if is_indeed_url(base_url):
+        return run_scrape(
+            base_url,
+            pages=pages,
+            headless=headless,
+            min_delay=min_delay,
+            max_delay=max_delay,
+            progress_cb=progress_cb,
+        )
+    return run_generic_scrape(base_url, headless=headless, progress_cb=progress_cb)
+
+
 def save_csv(jobs: List[Job], output: str) -> None:
     fieldnames = [f.name for f in fields(Job)]
     with open(output, "w", newline="", encoding="utf-8-sig") as f:
@@ -292,7 +430,7 @@ def main():
 
     base_url = args.url or build_search_url(args.keyword, args.location)
 
-    all_jobs = run_scrape(
+    all_jobs = run_scrape_any(
         base_url,
         pages=args.pages,
         headless=args.headless,

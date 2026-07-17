@@ -29,7 +29,7 @@ from datetime import datetime
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, abort
 
-from indeed_scraper import build_search_url, run_scrape, save_csv
+from indeed_scraper import build_search_url, run_scrape_any, save_csv
 
 # index.html はリポジトリのルート直下に置く運用(GitHubへのドラッグ&ドロップ
 # アップロードでサブフォルダ構成を作らずに済むように、テンプレートフォルダを
@@ -62,7 +62,7 @@ def worker(job_id: str, base_url: str, pages: int, filename: str):
         def cb(msg):
             append_log(job_id, msg)
 
-        jobs = run_scrape(base_url, pages=pages, headless=True, progress_cb=cb)
+        jobs = run_scrape_any(base_url, pages=pages, headless=True, progress_cb=cb)
         output_path = os.path.join(OUTPUT_DIR, filename)
         save_csv(jobs, output_path)
 
@@ -108,7 +108,7 @@ def scrape():
 
     job_id = uuid.uuid4().hex[:12]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"indeed_jobs_{timestamp}.csv"
+    filename = f"scraped_data_{timestamp}.csv"
 
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "running", "logs": [], "count": 0, "filename": None}
