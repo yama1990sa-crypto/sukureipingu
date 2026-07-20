@@ -561,7 +561,7 @@ def ddg_search_first_url(page, query: str, notify=None, exclude_domains=None) ->
     最初のリンクURLを返す。見つからなければ None。"""
     exclude_domains = exclude_domains or []
     search_url = DDG_SEARCH_URL.format(query=quote(query))
-    goto_with_retry(page, search_url, notify=notify, timeout=20000)
+    goto_with_retry(page, search_url, notify=notify, timeout=45000)
 
     links = page.evaluate(
         "() => Array.from(document.querySelectorAll('a.result__a')).map(a => a.getAttribute('href'))"
