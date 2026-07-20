@@ -43,7 +43,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
-MAX_ITEMS = 30  # 詳細ページを開く件数 / 企業名検索の社数の上限
+MAX_ITEMS = 1000  # 詳細ページを開く件数 / 企業名検索の社数の上限
 
 # 複数人での共有利用を想定し、同時に1件しかスクレイピングを実行しないようにする
 # (サーバーのリソース節約と、Indeedへの同時アクセス集中を避けるため)

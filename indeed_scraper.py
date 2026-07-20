@@ -513,8 +513,8 @@ def run_scrape_any(
         return []
 
     # 汎用モードでは「ページ数」入力を、詳細ページを何件まで開くかの
-    # 上限として流用する(サイトへの負荷・実行時間を考慮し最大30件)
-    max_details = max(1, min(pages, 30))
+    # 上限として流用する
+    max_details = max(1, min(pages, 1000))
     return run_generic_scrape(
         base_url,
         headless=headless,
@@ -648,7 +648,7 @@ def run_company_search(
     company_lines: List[str],
     headless: bool = True,
     progress_cb=None,
-    max_companies: int = 30,
+    max_companies: int = 1000,
     min_delay: float = 1.5,
     max_delay: float = 3.0,
 ) -> List[CompanyContact]:
@@ -800,7 +800,7 @@ def main():
              "の形式にしてください。指定した場合 --url/--keyword/--location は無視されます "
              "(例: --companies \"A株式会社,https://a.example.com;B株式会社,https://b.example.com\")",
     )
-    parser.add_argument("--pages", type=int, default=1, help="取得するページ数、または企業名検索モードでは検索する社数(最大30)")
+    parser.add_argument("--pages", type=int, default=1, help="取得するページ数、または企業名検索モードでは検索する社数(最大1000)")
     parser.add_argument("--output", default="indeed_jobs.csv", help="出力CSVファイル名")
     parser.add_argument("--headless", action="store_true", default=True, help="ヘッドレスモードで実行(既定)")
     parser.add_argument("--show-browser", dest="headless", action="store_false", help="ブラウザを表示して実行(デバッグ用)")
@@ -810,7 +810,7 @@ def main():
 
     if args.companies:
         lines = [s.strip() for s in args.companies.split(";") if s.strip()]
-        results = run_company_search(lines, headless=args.headless, max_companies=max(1, min(args.pages, 30)))
+        results = run_company_search(lines, headless=args.headless, max_companies=max(1, min(args.pages, 1000)))
         save_csv(results, args.output)
         print(f"\n完了: {len(results)} 社分を {args.output} に保存しました。")
         return
