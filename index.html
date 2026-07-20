@@ -147,15 +147,17 @@
     </div>
 
     <div id="field-companies" class="field-group">
-      <label>調べたい企業名(1行に1社)</label>
-      <textarea id="companies" placeholder="株式会社サンプル&#10;サンプル商事&#10;..."></textarea>
+      <label>調べたい企業名と公式サイトURL(1行に1社)</label>
+      <textarea id="companies" placeholder="株式会社サンプル,https://sample.co.jp&#10;サンプル商事,https://sample-shoji.example.com&#10;..."></textarea>
       <div class="hint">
-        入力した企業名ごとに検索エンジンで公式サイトを見つけ、
-        お問い合わせページを開いて電話番号・メールアドレス・住所を
-        自動で取得します。<br>
-        ※検索でうまく公式サイトが見つからない場合や、電話番号などが
-        ページに書かれていない場合は空欄になります。同姓同名の別会社が
-        見つかることもあるため、結果は必ず目視で確認してください。
+        「会社名,公式サイトのURL」の形式で1行に1社ずつ入力してください
+        (カンマの前後にスペースが入っても大丈夫です)。指定したサイトを
+        開いて電話番号・メールアドレス・住所を取得し、あわせて
+        「お問い合わせ」等のリンクがあれば開いて情報を補完します。<br>
+        ※検索エンジンを使った自動検索は行いません(クラウド版では
+        検索エンジン側にブロックされ動作しないため)。公式サイトのURLは
+        あらかじめご自身で調べて入力してください。<br>
+        ※電話番号などがページに書かれていない場合は空欄になります。
       </div>
     </div>
 
@@ -180,7 +182,7 @@ let pollTimer = null;
 const pagesLabel = document.getElementById("pages-label");
 const pagesLabelText = {
   url: "調べる件数(詳細ページを開いて会社名・住所・電話番号などを取得、最大{{ max_pages }}件)",
-  companies: "検索する社数(1行1社、最大{{ max_pages }}社)",
+  companies: "処理する社数(1行1社、最大{{ max_pages }}社)",
 };
 
 document.querySelectorAll(".tab-btn").forEach(btn => {
