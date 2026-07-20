@@ -307,50 +307,61 @@ function resetBtn() {
   startBtn.textContent = "🐾 取得開始";
 }
 
-// 柴犬をたくさん表示する(Dog CEO の無料API https://dog.ceo/dog-api/ を利用)。
-// 取得に失敗しても本体機能には影響しないので静かに諦める。
-async function loadShibas() {
-  try {
-    const res = await fetch("https://dog.ceo/api/breed/shiba/images/random/10");
-    const data = await res.json();
-    const urls = (data && data.message) || [];
-    if (!urls.length) return;
+// オリジナルの柴犬マスコットをたくさん表示する(自前のSVGイラストなので通信不要・常に表示される)。
+const SHIBA_MASCOT_SVG = `<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+<ellipse cx="60" cy="101" rx="38" ry="21" fill="#f0a868"/>
+<ellipse cx="60" cy="105" rx="20" ry="13" fill="#fff6ec"/>
+<ellipse cx="41" cy="113" rx="10" ry="7" fill="#fff6ec"/>
+<ellipse cx="79" cy="113" rx="10" ry="7" fill="#fff6ec"/>
+<path d="M27 39 L17 4 L48 31 Z" fill="#e08a3e"/>
+<path d="M93 39 L103 4 L72 31 Z" fill="#e08a3e"/>
+<path d="M29 34 L24 13 L43 30 Z" fill="#c96f26"/>
+<path d="M91 34 L96 13 L77 30 Z" fill="#c96f26"/>
+<circle cx="60" cy="55" r="38" fill="#f0a868"/>
+<ellipse cx="60" cy="69" rx="25" ry="19" fill="#fff6ec"/>
+<ellipse cx="45" cy="51" rx="5.5" ry="6.5" fill="#2b2115"/>
+<ellipse cx="75" cy="51" rx="5.5" ry="6.5" fill="#2b2115"/>
+<circle cx="46.5" cy="48" r="1.6" fill="#fff"/>
+<circle cx="76.5" cy="48" r="1.6" fill="#fff"/>
+<ellipse cx="35" cy="63" rx="6.5" ry="4.2" fill="#f7b6a0" opacity="0.75"/>
+<ellipse cx="85" cy="63" rx="6.5" ry="4.2" fill="#f7b6a0" opacity="0.75"/>
+<path d="M55 66 L65 66 L60 73 Z" fill="#2b2115"/>
+<path d="M60 73 Q60 80 51 80" stroke="#2b2115" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+<path d="M60 73 Q60 80 69 80" stroke="#2b2115" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+</svg>`;
+const SHIBA_MASCOT_URI = "data:image/svg+xml;utf8," + encodeURIComponent(SHIBA_MASCOT_SVG);
 
-    const banner = document.getElementById("shiba-banner");
-    urls.slice(0, 4).forEach(u => {
-      const img = document.createElement("img");
-      img.src = u;
-      img.alt = "柴犬";
-      img.loading = "lazy";
-      banner.appendChild(img);
-    });
-
-    const stickerSpots = [
-      { top: "10px",  left: "calc(50% - 440px)", rot: "-10deg" },
-      { top: "270px", left: "calc(50% - 470px)", rot: "7deg" },
-      { top: "520px", left: "calc(50% - 430px)", rot: "-6deg" },
-      { top: "60px",  left: "calc(50% + 350px)", rot: "11deg" },
-      { top: "320px", left: "calc(50% + 380px)", rot: "-9deg" },
-      { top: "560px", left: "calc(50% + 340px)", rot: "6deg" },
-    ];
-    urls.slice(4, 10).forEach((u, i) => {
-      const spot = stickerSpots[i];
-      if (!spot) return;
-      const img = document.createElement("img");
-      img.src = u;
-      img.alt = "柴犬";
-      img.loading = "lazy";
-      img.className = "shiba-sticker";
-      img.style.top = spot.top;
-      img.style.left = spot.left;
-      img.style.transform = "rotate(" + spot.rot + ")";
-      document.body.appendChild(img);
-    });
-  } catch (e) {
-    // 柴犬が来なくても気にしない
+function renderMascots() {
+  const banner = document.getElementById("shiba-banner");
+  for (let i = 0; i < 4; i++) {
+    const img = document.createElement("img");
+    img.src = SHIBA_MASCOT_URI;
+    img.alt = "柴犬マスコット";
+    if (i % 2 === 1) img.style.transform = "scaleX(-1)";
+    banner.appendChild(img);
   }
+
+  const stickerSpots = [
+    { top: "10px",  left: "calc(50% - 440px)", rot: "-10deg" },
+    { top: "270px", left: "calc(50% - 470px)", rot: "7deg" },
+    { top: "520px", left: "calc(50% - 430px)", rot: "-6deg" },
+    { top: "60px",  left: "calc(50% + 350px)", rot: "11deg" },
+    { top: "320px", left: "calc(50% + 380px)", rot: "-9deg" },
+    { top: "560px", left: "calc(50% + 340px)", rot: "6deg" },
+  ];
+  stickerSpots.forEach((spot, i) => {
+    const img = document.createElement("img");
+    img.src = SHIBA_MASCOT_URI;
+    img.alt = "柴犬マスコット";
+    img.className = "shiba-sticker";
+    img.style.top = spot.top;
+    img.style.left = spot.left;
+    const flip = i % 2 === 1 ? " scaleX(-1)" : "";
+    img.style.transform = "rotate(" + spot.rot + ")" + flip;
+    document.body.appendChild(img);
+  });
 }
-loadShibas();
+renderMascots();
 </script>
 </body>
 </html>
