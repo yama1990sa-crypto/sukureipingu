@@ -567,6 +567,21 @@ def ddg_search_first_url(page, query: str, notify=None, exclude_domains=None) ->
         "() => Array.from(document.querySelectorAll('a.result__a')).map(a => a.getAttribute('href'))"
     ) or []
 
+    if notify:
+        notify(f"    検索結果: {len(links)}件のリンクを検出")
+
+    if not links:
+        # 0件だった場合、原因調査用にページの様子を少しログに残す
+        try:
+            title = page.title()
+            snippet = (
+                page.evaluate("() => document.body ? document.body.innerText : ''") or ""
+            )[:150].replace("\n", " ")
+            if notify:
+                notify(f"    (診断: タイトル=\"{title}\" 本文=\"{snippet}\")")
+        except Exception:
+            pass
+
     for href in links:
         if not href:
             continue
@@ -582,6 +597,8 @@ def ddg_search_first_url(page, query: str, notify=None, exclude_domains=None) ->
         if any(ex in domain for ex in exclude_domains):
             continue
         return real_url
+    if links and notify:
+        notify("    (検出したリンクはすべて除外ドメインに一致しました)")
     return None
 
 
