@@ -143,17 +143,16 @@
       <label>スクレイピングしたいページのURL(Indeed以外のサイトも可)</label>
       <input type="text" id="url" placeholder="https://example.com/...">
       <div class="hint">
-        Indeed以外のURLを指定した場合は「汎用モード」で動作し、
-        指定した1ページからタイトル・リンク・概要に加えて、会社名・住所・
-        電話番号・メールアドレスをページ本文から自動検出して取得します
-        (ページ数指定は無視されます)。これらの項目は一覧ページの本文に
-        直接書かれている場合のみ検出できます。詳細ページにしか無い情報は
-        取得できず、空欄になることがあります。サイトによっては精度が
-        落ちることがあります。
+        Indeed以外のURLを指定した場合は「汎用モード」で動作します。
+        まず一覧ページからタイトル・リンクを検出し、続けて各項目の
+        詳細ページを実際に開いて会社名・住所・電話番号・メールアドレスを
+        自動検出します(下の「取得ページ数」が詳細ページを開く件数の
+        上限になります。最大30件、多いほど時間がかかります)。
+        サイトの書き方によっては検出できず空欄になることがあります。
       </div>
     </div>
 
-    <label>取得ページ数(1ページ ≒ 15件、最大 {{ max_pages }} ページ)</label>
+    <label id="pages-label">取得ページ数(1ページ ≒ 15件、最大 {{ max_pages }} ページ)</label>
     <input type="number" id="pages" value="1" min="1" max="{{ max_pages }}">
 
     <button class="primary" id="start-btn" onclick="startScrape()">取得開始</button>
@@ -171,6 +170,12 @@
 let currentMode = "keyword";
 let pollTimer = null;
 
+const pagesLabel = document.getElementById("pages-label");
+const pagesLabelText = {
+  keyword: "取得ページ数(1ページ ≒ 15件、最大 {{ max_pages }} ページ)",
+  url: "詳細ページを開く件数の上限(会社名・住所・電話番号等を補完、最大30件)",
+};
+
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -178,6 +183,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     currentMode = btn.dataset.mode;
     document.querySelectorAll(".field-group").forEach(g => g.classList.remove("active"));
     document.getElementById("field-" + currentMode).classList.add("active");
+    pagesLabel.textContent = pagesLabelText[currentMode];
   });
 });
 

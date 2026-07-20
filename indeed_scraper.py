@@ -317,24 +317,19 @@ def is_indeed_url(url: str) -> bool:
         return False
 
 
-def scrape_generic_page(page, url: str, notify=None) -> List[Job]:
-    """
-    Indeed 以外の任意サイト向けの汎用スクレイピング。
-    ページ内の「繰り返し要素」を自動検出してタイトル・URL・概要を抽出する。
-    サイト専用のセレクタが無いぶん精度は Indeed 版より落ちる。
-    """
+def goto_with_retry(page, url: str, notify=None, timeout: int = 45000) -> None:
+    """domcontentloaded待ちがタイムアウトした場合、条件を緩めて1回だけ再試行する
+    共通ナビゲーション処理。"""
+
     def log(msg: str):
         if notify:
             notify(msg)
 
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
     except PWTimeoutError:
-        # 重いサイトや接続が遅い場合、domcontentloaded 待ちで45秒超えることがある。
-        # ナビゲーション自体は開始できている可能性が高いので、
-        # 条件を緩めて(応答ヘッダー受信時点で)もう一度だけ試す。
         log("  ページの読み込みに時間がかかっています。条件を緩めて再試行します…")
-        page.goto(url, wait_until="commit", timeout=45000)
+        page.goto(url, wait_until="commit", timeout=timeout)
         page.wait_for_timeout(3000)
 
     try:
@@ -342,6 +337,15 @@ def scrape_generic_page(page, url: str, notify=None) -> List[Job]:
     except PWTimeoutError:
         pass
     page.wait_for_timeout(1500)
+
+
+def scrape_generic_page(page, url: str, notify=None) -> List[Job]:
+    """
+    Indeed 以外の任意サイト向けの汎用スクレイピング。
+    ページ内の「繰り返し要素」を自動検出してタイトル・URL・概要を抽出する。
+    サイト専用のセレクタが無いぶん精度は Indeed 版より落ちる。
+    """
+    goto_with_retry(page, url, notify=notify)
 
     raw_items = page.evaluate(GENERIC_EXTRACT_JS)
 
@@ -364,12 +368,71 @@ def scrape_generic_page(page, url: str, notify=None) -> List[Job]:
     return jobs
 
 
+def enrich_with_detail_pages(
+    page,
+    jobs: List[Job],
+    max_details: int = 20,
+    min_delay: float = 1.5,
+    max_delay: float = 3.0,
+    notify=None,
+) -> List[Job]:
+    """
+    一覧ページだけでは会社名・住所・電話番号・メールアドレスが取れない
+    サイト向けに、各項目の詳細ページを実際に開いて本文から再抽出し、
+    情報を補完する。詳細ページの方が情報が多いことを想定し、
+    見つかった項目だけ上書きする(見つからなければ一覧ページの値を残す)。
+
+    サイトへの負荷とサーバーのリソース・実行時間を考慮し、
+    詳細ページを開く件数には上限(max_details)を設ける。
+    """
+
+    def log(msg: str):
+        if notify:
+            notify(msg)
+
+    targets = [j for j in jobs if j.url][:max_details]
+    if not targets:
+        return jobs
+
+    log(f"詳細ページを{len(targets)}件開いて会社名・住所・電話番号などを補完します…")
+
+    for i, job in enumerate(targets, start=1):
+        label = job.title[:30] if job.title else job.url
+        log(f"  詳細取得中 ({i}/{len(targets)}): {label}")
+        try:
+            goto_with_retry(page, job.url, notify=notify)
+            detail_text = page.evaluate(
+                "() => document.body ? document.body.innerText : ''"
+            ) or ""
+            fields_found = extract_business_fields(detail_text)
+            if fields_found["company"]:
+                job.company = fields_found["company"]
+            if fields_found["address"]:
+                job.location = fields_found["address"]
+            if fields_found["phone"]:
+                job.phone = fields_found["phone"]
+            if fields_found["email"]:
+                job.email = fields_found["email"]
+        except Exception as e:
+            log(f"    詳細ページの取得に失敗しました({e})。この項目はスキップします。")
+
+        if i < len(targets):
+            time.sleep(random.uniform(min_delay, max_delay))
+
+    return jobs
+
+
 def run_generic_scrape(
     url: str,
     headless: bool = True,
     progress_cb=None,
+    max_details: int = 20,
 ) -> List[Job]:
-    """Indeed 以外のサイトを1ページだけスクレイピングする(汎用モード)。"""
+    """
+    Indeed 以外のサイトを汎用モードでスクレイピングする。
+    まず一覧ページから項目(タイトル・URL)を検出し、続けて各項目の
+    詳細ページを開いて会社名・住所・電話番号・メールアドレスを補完する。
+    """
 
     def notify(msg: str):
         if progress_cb:
@@ -377,8 +440,8 @@ def run_generic_scrape(
         else:
             print(msg)
 
-    notify("Indeed以外のサイトと判定しました。汎用モードで指定ページのみ取得します。")
-    notify(f"取得中: {url}")
+    notify("Indeed以外のサイトと判定しました。汎用モードで取得します。")
+    notify(f"一覧ページを取得中: {url}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -390,6 +453,11 @@ def run_generic_scrape(
         page = context.new_page()
         try:
             jobs = scrape_generic_page(page, url, notify=notify)
+            notify(f"  -> 一覧から {len(jobs)} 件検出しました")
+            if jobs:
+                jobs = enrich_with_detail_pages(
+                    page, jobs, max_details=max_details, notify=notify
+                )
         except Exception as e:
             notify(f"エラー: ページ取得に失敗しました ({e})")
             notify(
@@ -400,7 +468,7 @@ def run_generic_scrape(
             jobs = []
         browser.close()
 
-    notify(f"  -> {len(jobs)} 件取得(タイトル・URL・概要・会社名・住所・電話・メール)")
+    notify(f"完了: {len(jobs)} 件取得(タイトル・URL・概要・会社名・住所・電話・メール)")
     return jobs
 
 
@@ -414,7 +482,7 @@ def run_scrape_any(
 ) -> List[Job]:
     """
     URLを見て Indeed なら専用ロジック(複数ページ・詳細項目対応)、
-    それ以外なら汎用ロジック(1ページのみ・タイトル/URL/概要)を使う。
+    それ以外なら汎用ロジック(一覧+詳細ページ巡回)を使う。
     """
     if is_indeed_url(base_url):
         return run_scrape(
@@ -425,7 +493,15 @@ def run_scrape_any(
             max_delay=max_delay,
             progress_cb=progress_cb,
         )
-    return run_generic_scrape(base_url, headless=headless, progress_cb=progress_cb)
+    # 汎用モードでは「ページ数」入力を、詳細ページを何件まで開くかの
+    # 上限として流用する(サイトへの負荷・実行時間を考慮し最大30件)
+    max_details = max(1, min(pages, 30))
+    return run_generic_scrape(
+        base_url,
+        headless=headless,
+        progress_cb=progress_cb,
+        max_details=max_details,
+    )
 
 
 def save_csv(jobs: List[Job], output: str) -> None:
