@@ -123,7 +123,7 @@
   <div class="card">
     <div class="tabs">
       <button type="button" class="tab-btn active" data-mode="keyword">Indeedキーワード検索</button>
-      <button type="button" class="tab-btn" data-mode="url">URLを直接指定</button>
+      <button type="button" class="tab-btn" data-mode="url">その他のサイト(Indeed以外)</button>
     </div>
 
     <div id="field-keyword" class="field-group active">
@@ -140,15 +140,16 @@
     </div>
 
     <div id="field-url" class="field-group">
-      <label>スクレイピングしたいページのURL(Indeed以外のサイトも可)</label>
+      <label>調べたいページのURL(Indeed以外のサイト)</label>
       <input type="text" id="url" placeholder="https://example.com/...">
       <div class="hint">
-        Indeed以外のURLを指定した場合は「汎用モード」で動作します。
-        まず一覧ページからタイトル・リンクを検出し、続けて各項目の
-        詳細ページを実際に開いて会社名・住所・電話番号・メールアドレスを
-        自動検出します(下の「取得ページ数」が詳細ページを開く件数の
-        上限になります。最大30件、多いほど時間がかかります)。
-        サイトの書き方によっては検出できず空欄になることがあります。
+        求人サイトなどの一覧ページのURLを入れてください。<br>
+        ① まずページの一覧から求人などの項目を自動で見つけます<br>
+        ② それぞれの詳細ページを開いて、会社名・住所・電話番号・
+        メールアドレスを自動で取得します<br>
+        ③ 下の「調べる件数」で、詳細ページを開く件数(最大30件)を
+        指定できます。件数が多いほど時間がかかります<br>
+        ※サイトによっては情報が見つからず、空欄になる項目もあります。
       </div>
     </div>
 
@@ -173,7 +174,7 @@ let pollTimer = null;
 const pagesLabel = document.getElementById("pages-label");
 const pagesLabelText = {
   keyword: "取得ページ数(1ページ ≒ 15件、最大 {{ max_pages }} ページ)",
-  url: "詳細ページを開く件数の上限(会社名・住所・電話番号等を補完、最大30件)",
+  url: "調べる件数(詳細ページを開いて会社名・住所・電話番号などを取得、最大30件)",
 };
 
 document.querySelectorAll(".tab-btn").forEach(btn => {
