@@ -29,7 +29,7 @@ from datetime import datetime
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, abort
 
-from indeed_scraper import build_search_url, run_scrape_any, save_csv
+from indeed_scraper import is_indeed_url, run_scrape_any, save_csv
 
 # index.html はリポジトリのルート直下に置く運用(GitHubへのドラッグ&ドロップ
 # アップロードでサブフォルダ構成を作らずに済むように、テンプレートフォルダを
@@ -43,7 +43,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
-MAX_PAGES = 100  # 暴走防止の上限
+MAX_PAGES = 30  # 詳細ページを開く件数の上限(汎用モードのみに対応するため)
 
 # 複数人での共有利用を想定し、同時に1件しかスクレイピングを実行しないようにする
 # (サーバーのリソース節約と、Indeedへの同時アクセス集中を避けるため)
@@ -87,21 +87,18 @@ def index():
 @app.route("/scrape", methods=["POST"])
 def scrape():
     data = request.get_json(force=True)
-    mode = data.get("mode")
     pages = int(data.get("pages", 1))
     pages = max(1, min(pages, MAX_PAGES))
 
-    if mode == "url":
-        url = (data.get("url") or "").strip()
-        if not url.startswith("http"):
-            return jsonify({"error": "有効なURLを入力してください"}), 400
-        base_url = url
-    else:
-        keyword = (data.get("keyword") or "").strip()
-        location = (data.get("location") or "").strip()
-        if not keyword and not location:
-            return jsonify({"error": "キーワードか勤務地のどちらかを入力してください"}), 400
-        base_url = build_search_url(keyword, location)
+    url = (data.get("url") or "").strip()
+    if not url.startswith("http"):
+        return jsonify({"error": "有効なURLを入力してください"}), 400
+    if is_indeed_url(url):
+        return jsonify({
+            "error": "Indeedは現在サーバーからのアクセスがブロックされているため、"
+                     "このツールでは利用できません。別の求人サイトのURLを指定してください。"
+        }), 400
+    base_url = url
 
     if not SCRAPE_LOCK.acquire(blocking=False):
         return jsonify({"error": "現在ほかの人が取得を実行中です。しばらく待ってからもう一度お試しください。"}), 429

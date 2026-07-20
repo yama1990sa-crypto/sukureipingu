@@ -481,18 +481,25 @@ def run_scrape_any(
     progress_cb=None,
 ) -> List[Job]:
     """
-    URLを見て Indeed なら専用ロジック(複数ページ・詳細項目対応)、
-    それ以外なら汎用ロジック(一覧+詳細ページ巡回)を使う。
+    Indeed はサーバーのIPが継続的にブロックされているため、このツールでは
+    非対応として扱う(試行自体を行わない)。それ以外のサイトのみ、
+    汎用ロジック(一覧+詳細ページ巡回)で取得する。
     """
+
+    def notify(msg: str):
+        if progress_cb:
+            progress_cb(msg)
+        else:
+            print(msg)
+
     if is_indeed_url(base_url):
-        return run_scrape(
-            base_url,
-            pages=pages,
-            headless=headless,
-            min_delay=min_delay,
-            max_delay=max_delay,
-            progress_cb=progress_cb,
+        notify(
+            "Indeedは現在サーバーからのアクセスがブロックされているため、"
+            "このツールでは非対応としています。別の求人サイトのURLを"
+            "指定するか、お使いのPC上でローカル実行してください。"
         )
+        return []
+
     # 汎用モードでは「ページ数」入力を、詳細ページを何件まで開くかの
     # 上限として流用する(サイトへの負荷・実行時間を考慮し最大30件)
     max_details = max(1, min(pages, 30))

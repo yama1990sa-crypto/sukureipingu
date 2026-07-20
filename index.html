@@ -114,46 +114,26 @@
 
   <div class="warning">
     <strong>ご利用にあたっての注意:</strong>
-    Indeed の利用規約は自動収集(スクレイピング)を禁止しています。
-    Indeed以外のサイトを指定する場合も、それぞれの利用規約・robots.txtを
+    Indeed は現在サーバーからのアクセスがブロックされているため非対応です。
+    Indeed以外のサイトについても、それぞれの利用規約・robots.txtを
     ご自身で確認の上、自己責任でお使いください。個人利用の範囲にとどめ、
     取得データの商用利用・再配布は避けてください。
   </div>
 
   <div class="card">
-    <div class="tabs">
-      <button type="button" class="tab-btn active" data-mode="keyword">Indeedキーワード検索</button>
-      <button type="button" class="tab-btn" data-mode="url">その他のサイト(Indeed以外)</button>
+    <label>調べたいページのURL(Indeedは非対応です)</label>
+    <input type="text" id="url" placeholder="https://example.com/...">
+    <div class="hint">
+      求人サイトなどの一覧ページのURLを入れてください。<br>
+      ① まずページの一覧から求人などの項目を自動で見つけます<br>
+      ② それぞれの詳細ページを開いて、会社名・住所・電話番号・
+      メールアドレスを自動で取得します<br>
+      ③ 下の「調べる件数」で、詳細ページを開く件数(最大{{ max_pages }}件)を
+      指定できます。件数が多いほど時間がかかります<br>
+      ※サイトによっては情報が見つからず、空欄になる項目もあります。
     </div>
 
-    <div id="field-keyword" class="field-group active">
-      <div class="row">
-        <div>
-          <label>キーワード(職種など)</label>
-          <input type="text" id="keyword" placeholder="例: エンジニア">
-        </div>
-        <div>
-          <label>勤務地</label>
-          <input type="text" id="location" placeholder="例: 神戸市">
-        </div>
-      </div>
-    </div>
-
-    <div id="field-url" class="field-group">
-      <label>調べたいページのURL(Indeed以外のサイト)</label>
-      <input type="text" id="url" placeholder="https://example.com/...">
-      <div class="hint">
-        求人サイトなどの一覧ページのURLを入れてください。<br>
-        ① まずページの一覧から求人などの項目を自動で見つけます<br>
-        ② それぞれの詳細ページを開いて、会社名・住所・電話番号・
-        メールアドレスを自動で取得します<br>
-        ③ 下の「調べる件数」で、詳細ページを開く件数(最大30件)を
-        指定できます。件数が多いほど時間がかかります<br>
-        ※サイトによっては情報が見つからず、空欄になる項目もあります。
-      </div>
-    </div>
-
-    <label id="pages-label">取得ページ数(1ページ ≒ 15件、最大 {{ max_pages }} ページ)</label>
+    <label id="pages-label">調べる件数(詳細ページを開いて会社名・住所・電話番号などを取得、最大{{ max_pages }}件)</label>
     <input type="number" id="pages" value="1" min="1" max="{{ max_pages }}">
 
     <button class="primary" id="start-btn" onclick="startScrape()">取得開始</button>
@@ -168,40 +148,16 @@
 </div>
 
 <script>
-let currentMode = "keyword";
 let pollTimer = null;
-
-const pagesLabel = document.getElementById("pages-label");
-const pagesLabelText = {
-  keyword: "取得ページ数(1ページ ≒ 15件、最大 {{ max_pages }} ページ)",
-  url: "調べる件数(詳細ページを開いて会社名・住所・電話番号などを取得、最大30件)",
-};
-
-document.querySelectorAll(".tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    currentMode = btn.dataset.mode;
-    document.querySelectorAll(".field-group").forEach(g => g.classList.remove("active"));
-    document.getElementById("field-" + currentMode).classList.add("active");
-    pagesLabel.textContent = pagesLabelText[currentMode];
-  });
-});
 
 function startScrape() {
   const errorEl = document.getElementById("error-msg");
   errorEl.textContent = "";
 
   const payload = {
-    mode: currentMode,
     pages: document.getElementById("pages").value,
+    url: document.getElementById("url").value,
   };
-  if (currentMode === "url") {
-    payload.url = document.getElementById("url").value;
-  } else {
-    payload.keyword = document.getElementById("keyword").value;
-    payload.location = document.getElementById("location").value;
-  }
 
   const startBtn = document.getElementById("start-btn");
   startBtn.disabled = true;
