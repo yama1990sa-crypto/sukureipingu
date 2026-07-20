@@ -29,7 +29,7 @@ from datetime import datetime
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, abort
 
-from indeed_scraper import is_indeed_url, run_scrape_any, save_csv
+from indeed_scraper import is_indeed_url, run_scrape_any, run_company_search, save_csv
 
 # index.html はリポジトリのルート直下に置く運用(GitHubへのドラッグ&ドロップ
 # アップロードでサブフォルダ構成を作らずに済むように、テンプレートフォルダを
@@ -43,7 +43,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
-MAX_PAGES = 30  # 詳細ページを開く件数の上限(汎用モードのみに対応するため)
+MAX_ITEMS = 30  # 詳細ページを開く件数 / 企業名検索の社数の上限
 
 # 複数人での共有利用を想定し、同時に1件しかスクレイピングを実行しないようにする
 # (サーバーのリソース節約と、Indeedへの同時アクセス集中を避けるため)
@@ -55,22 +55,26 @@ def append_log(job_id: str, message: str):
         JOBS[job_id]["logs"].append(message)
 
 
-def worker(job_id: str, base_url: str, pages: int, filename: str):
+def worker(job_id: str, mode: str, base_url: str, companies: list, count: int, filename: str):
     try:
         append_log(job_id, "ブラウザを起動しています…")
 
         def cb(msg):
             append_log(job_id, msg)
 
-        jobs = run_scrape_any(base_url, pages=pages, headless=True, progress_cb=cb)
+        if mode == "companies":
+            items = run_company_search(companies, headless=True, progress_cb=cb, max_companies=count)
+        else:
+            items = run_scrape_any(base_url, pages=count, headless=True, progress_cb=cb)
+
         output_path = os.path.join(OUTPUT_DIR, filename)
-        save_csv(jobs, output_path)
+        save_csv(items, output_path)
 
         with JOBS_LOCK:
             JOBS[job_id]["status"] = "done"
-            JOBS[job_id]["count"] = len(jobs)
+            JOBS[job_id]["count"] = len(items)
             JOBS[job_id]["filename"] = filename
-        append_log(job_id, f"完了: {len(jobs)} 件を取得しました。")
+        append_log(job_id, f"完了: {len(items)} 件を取得しました。")
     except Exception as e:
         with JOBS_LOCK:
             JOBS[job_id]["status"] = "error"
@@ -81,24 +85,34 @@ def worker(job_id: str, base_url: str, pages: int, filename: str):
 
 @app.route("/")
 def index():
-    return render_template("index.html", max_pages=MAX_PAGES)
+    return render_template("index.html", max_pages=MAX_ITEMS)
 
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
     data = request.get_json(force=True)
-    pages = int(data.get("pages", 1))
-    pages = max(1, min(pages, MAX_PAGES))
+    mode = data.get("mode", "url")
+    count = int(data.get("pages", 1))
+    count = max(1, min(count, MAX_ITEMS))
 
-    url = (data.get("url") or "").strip()
-    if not url.startswith("http"):
-        return jsonify({"error": "有効なURLを入力してください"}), 400
-    if is_indeed_url(url):
-        return jsonify({
-            "error": "Indeedは現在サーバーからのアクセスがブロックされているため、"
-                     "このツールでは利用できません。別の求人サイトのURLを指定してください。"
-        }), 400
-    base_url = url
+    base_url = ""
+    companies = []
+
+    if mode == "companies":
+        raw = data.get("companies", "") or ""
+        companies = [line.strip() for line in raw.splitlines() if line.strip()]
+        if not companies:
+            return jsonify({"error": "会社名を1行に1社ずつ、1つ以上入力してください"}), 400
+    else:
+        url = (data.get("url") or "").strip()
+        if not url.startswith("http"):
+            return jsonify({"error": "有効なURLを入力してください"}), 400
+        if is_indeed_url(url):
+            return jsonify({
+                "error": "Indeedは現在サーバーからのアクセスがブロックされているため、"
+                         "このツールでは利用できません。別の求人サイトのURLを指定してください。"
+            }), 400
+        base_url = url
 
     if not SCRAPE_LOCK.acquire(blocking=False):
         return jsonify({"error": "現在ほかの人が取得を実行中です。しばらく待ってからもう一度お試しください。"}), 429
@@ -110,7 +124,9 @@ def scrape():
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "running", "logs": [], "count": 0, "filename": None}
 
-    t = threading.Thread(target=worker, args=(job_id, base_url, pages, filename), daemon=True)
+    t = threading.Thread(
+        target=worker, args=(job_id, mode, base_url, companies, count, filename), daemon=True
+    )
     t.start()
 
     return jsonify({"job_id": job_id})

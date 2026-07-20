@@ -38,7 +38,7 @@ import sys
 import time
 from dataclasses import dataclass, fields
 from typing import List, Optional
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, quote, unquote
 
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
@@ -127,6 +127,18 @@ class Job:
     url: str = ""
     phone: str = ""
     email: str = ""
+
+
+@dataclass
+class CompanyContact:
+    """企業名から検索して見つけた公式サイト・問い合わせ先の情報"""
+    company: str = ""
+    official_url: str = ""
+    contact_url: str = ""
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    note: str = ""
 
 
 # ── 汎用モード向け: 会社名・住所・電話番号・メールアドレスの正規表現抽出 ──
@@ -511,13 +523,196 @@ def run_scrape_any(
     )
 
 
-def save_csv(jobs: List[Job], output: str) -> None:
-    fieldnames = [f.name for f in fields(Job)]
+def save_csv(items, output: str) -> None:
+    """Job / CompanyContact どちらのリストも保存できる汎用CSV書き出し。"""
+    if items:
+        fieldnames = [f.name for f in fields(items[0])]
+    else:
+        fieldnames = [f.name for f in fields(Job)]
     with open(output, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        for job in jobs:
-            writer.writerow(job.__dict__)
+        for item in items:
+            writer.writerow(item.__dict__)
+
+
+# ── 企業名から公式サイト・問い合わせ先を検索するモード ──────────────────
+
+# DuckDuckGo の HTML版検索結果ページ(JS不要・軽量)を使う。
+# Google検索はスクレイピングへの検知・ブロックが強く、Indeedと同様の
+# 問題が起きやすいため採用しない。
+DDG_SEARCH_URL = "https://html.duckduckgo.com/html/?q={query}"
+
+# 検索結果からは除外したい、企業の公式サイトではないことが多いドメイン
+SEARCH_RESULT_EXCLUDE_DOMAINS = [
+    "wikipedia.org", "facebook.com", "twitter.com", "x.com", "instagram.com",
+    "indeed.com", "en.wikipedia.org", "linkedin.com", "youtube.com",
+    "duckduckgo.com", "goo.ne.jp", "openwork.jp", "en-hyouban.com",
+]
+
+CONTACT_LINK_KEYWORDS = [
+    "お問い合わせ", "お問合せ", "問い合わせ", "問合せ", "contact", "inquiry",
+    "toiawase", "otoiawase",
+]
+
+
+def ddg_search_first_url(page, query: str, notify=None, exclude_domains=None) -> Optional[str]:
+    """DuckDuckGoのHTML検索結果から、除外ドメインに当てはまらない
+    最初のリンクURLを返す。見つからなければ None。"""
+    exclude_domains = exclude_domains or []
+    search_url = DDG_SEARCH_URL.format(query=quote(query))
+    goto_with_retry(page, search_url, notify=notify, timeout=20000)
+
+    links = page.evaluate(
+        "() => Array.from(document.querySelectorAll('a.result__a')).map(a => a.getAttribute('href'))"
+    ) or []
+
+    for href in links:
+        if not href:
+            continue
+        real_url = href
+        if href.startswith("//duckduckgo.com/l/") or "duckduckgo.com/l/" in href:
+            parsed = urlparse(href if href.startswith("http") else "https:" + href)
+            qs = parse_qs(parsed.query)
+            if "uddg" in qs:
+                real_url = unquote(qs["uddg"][0])
+        domain = urlparse(real_url).netloc.lower()
+        if not domain:
+            continue
+        if any(ex in domain for ex in exclude_domains):
+            continue
+        return real_url
+    return None
+
+
+def find_contact_link(page) -> Optional[str]:
+    """開いているページ内から、問い合わせ・contact 関連のリンクを探して
+    絶対URLを返す。見つからなければ None。"""
+    try:
+        return page.evaluate(
+            """
+            (keywords) => {
+              const as = Array.from(document.querySelectorAll('a[href]'));
+              for (const a of as) {
+                const text = (a.innerText || '').toLowerCase();
+                const href = (a.getAttribute('href') || '').toLowerCase();
+                for (const kw of keywords) {
+                  if (text.includes(kw) || href.includes(kw)) {
+                    return a.href;
+                  }
+                }
+              }
+              return null;
+            }
+            """,
+            [k.lower() for k in CONTACT_LINK_KEYWORDS],
+        )
+    except Exception:
+        return None
+
+
+def scrape_company_contact(page, company_name: str, notify=None) -> CompanyContact:
+    def log(msg: str):
+        if notify:
+            notify(msg)
+
+    contact = CompanyContact(company=company_name)
+    try:
+        official = ddg_search_first_url(
+            page,
+            f"{company_name} 公式サイト",
+            notify=notify,
+            exclude_domains=SEARCH_RESULT_EXCLUDE_DOMAINS,
+        )
+        if not official:
+            contact.note = "公式サイトが見つかりませんでした"
+            return contact
+        contact.official_url = official
+
+        goto_with_retry(page, official, notify=notify)
+        top_text = page.evaluate(
+            "() => document.body ? document.body.innerText : ''"
+        ) or ""
+        top_fields = extract_business_fields(top_text)
+        contact.phone = top_fields["phone"]
+        contact.email = top_fields["email"]
+        contact.address = top_fields["address"]
+
+        contact_link = find_contact_link(page)
+        if contact_link:
+            contact.contact_url = contact_link
+            try:
+                goto_with_retry(page, contact_link, notify=notify)
+                detail_text = page.evaluate(
+                    "() => document.body ? document.body.innerText : ''"
+                ) or ""
+                detail_fields = extract_business_fields(detail_text)
+                if detail_fields["phone"]:
+                    contact.phone = detail_fields["phone"]
+                if detail_fields["email"]:
+                    contact.email = detail_fields["email"]
+                if detail_fields["address"] and not contact.address:
+                    contact.address = detail_fields["address"]
+            except Exception as e:
+                log(f"    お問い合わせページの取得に失敗しました({e})")
+
+        if not contact.phone and not contact.email:
+            contact.note = "電話番号・メールアドレスが見つかりませんでした"
+    except Exception as e:
+        contact.note = f"取得エラー: {e}"
+    return contact
+
+
+def run_company_search(
+    company_names: List[str],
+    headless: bool = True,
+    progress_cb=None,
+    max_companies: int = 30,
+    min_delay: float = 1.5,
+    max_delay: float = 3.0,
+) -> List[CompanyContact]:
+    """企業名のリストから、それぞれの公式サイト・問い合わせページを検索し、
+    電話番号・メールアドレスを取得する。"""
+
+    def notify(msg: str):
+        if progress_cb:
+            progress_cb(msg)
+        else:
+            print(msg)
+
+    names = [n.strip() for n in company_names if n and n.strip()][:max_companies]
+    if not names:
+        notify("会社名が指定されていません。")
+        return []
+
+    results: List[CompanyContact] = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=headless)
+        context = browser.new_context(
+            user_agent=USER_AGENT,
+            locale="ja-JP",
+            viewport={"width": 1280, "height": 900},
+        )
+        page = context.new_page()
+
+        for i, name in enumerate(names, start=1):
+            notify(f"[{i}/{len(names)}] 検索中: {name}")
+            contact = scrape_company_contact(page, name, notify=notify)
+            results.append(contact)
+            if contact.note:
+                notify(f"  -> {contact.note}")
+            else:
+                notify(
+                    f"  -> URL: {contact.official_url} / 電話: {contact.phone or '-'} "
+                    f"/ メール: {contact.email or '-'}"
+                )
+            if i < len(names):
+                time.sleep(random.uniform(min_delay, max_delay))
+
+        browser.close()
+
+    notify(f"完了: {len(results)} 社分を処理しました。")
+    return results
 
 
 def run_scrape(
@@ -614,11 +809,17 @@ def run_scrape(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Indeed 求人スクレイピングツール")
+    parser = argparse.ArgumentParser(description="求人・企業情報スクレイピングツール")
     parser.add_argument("--url", help="検索結果ページのURL(指定した場合 --keyword/--location は無視)")
     parser.add_argument("--keyword", default="", help="検索キーワード")
     parser.add_argument("--location", default="", help="勤務地")
-    parser.add_argument("--pages", type=int, default=1, help="取得するページ数(1ページ=最大約15件)")
+    parser.add_argument(
+        "--companies",
+        default="",
+        help="カンマ区切りの企業名リスト。指定した場合は企業名検索モードで実行し、"
+             "--url/--keyword/--location は無視されます (例: --companies \"A株式会社,B株式会社\")",
+    )
+    parser.add_argument("--pages", type=int, default=1, help="取得するページ数、または企業名検索モードでは検索する社数(最大30)")
     parser.add_argument("--output", default="indeed_jobs.csv", help="出力CSVファイル名")
     parser.add_argument("--headless", action="store_true", default=True, help="ヘッドレスモードで実行(既定)")
     parser.add_argument("--show-browser", dest="headless", action="store_false", help="ブラウザを表示して実行(デバッグ用)")
@@ -626,8 +827,15 @@ def main():
     parser.add_argument("--max-delay", type=float, default=6.0, help="ページ間の最大待機秒数")
     args = parser.parse_args()
 
+    if args.companies:
+        names = [n.strip() for n in args.companies.split(",") if n.strip()]
+        results = run_company_search(names, headless=args.headless, max_companies=max(1, min(args.pages, 30)))
+        save_csv(results, args.output)
+        print(f"\n完了: {len(results)} 社分を {args.output} に保存しました。")
+        return
+
     if not args.url and not (args.keyword or args.location):
-        parser.error("--url か、--keyword/--location のいずれかを指定してください")
+        parser.error("--url か、--keyword/--location か、--companies のいずれかを指定してください")
 
     base_url = args.url or build_search_url(args.keyword, args.location)
 
